@@ -18,6 +18,19 @@ INTERNET_HEADER = "Data/Hora,Protocolo,IP Origem,IP Destino,Protocolo Superior,T
 TRANSPORT_HEADER = "Data/Hora,Protocolo,IP Origem,Porta Origem,IP Destino,Porta Destino,Tamanho\n"
 APP_HEADER = "Data/Hora,Protocolo,IP Origem,IP Destino,Tamanho\n"
 
+# -- Quantidades de Pacotes --
+IPV4_COUNT = 0
+IPV6_COUNT = 0
+ICMP_COUNT = 0
+
+TCP_COUNT = 0
+UDP_COUNT = 0
+
+HTTP_COUNT = 0
+DNS_COUNT = 0
+DHCP_COUNT = 0
+NTP_COUNT = 0
+
 # -- Funções Auxiliares --
 
 def clean_terminal():
@@ -103,6 +116,36 @@ def save_logs(ether_data, ip_data, transport_data, application_data):
         print("[Erro de Log] Sem permissão para escrever no diretório 'Logs'.")
     except Exception as e:
         print(f"[Erro de Log] Falha ao salvar log: {e}")
+
+# ---- Função do Monito --
+
+def monitor_interface():
+    print("===========================================================================================")
+    print("  MONITOR DE TRÁFEGO DE REDE")
+    print("===========================================================================================")
+    print(f"  Interface: {INTERFACE}")
+    print("  Pressione Ctrl+C para encerrar o monitoramento.")
+    print("===========================================================================================")
+    print("\nCAMADA DE INTERNET")
+    print("-------------------------------------------------------------------------------------------")
+    print(f"   IPv4: {IPV4_COUNT}")
+    print(f"   IPv6: {IPV6_COUNT}")
+    print(f"   ICMP: {ICMP_COUNT}")
+    print("\nCAMADA DE TRANSPORTE")
+    print("-------------------------------------------------------------------------------------------")
+    print(f"   TCP: {TCP_COUNT}")
+    print(f"   UDP: {UDP_COUNT}")
+    print("\nCAMADA DE APLICAÇÃO")
+    print("-------------------------------------------------------------------------------------------")
+    print(f"   HTTP: {HTTP_COUNT}")
+    print(f"   DNS: {DNS_COUNT}")
+    print(f"   DHCP: {DHCP_COUNT}")
+    print(f"   NTP: {NTP_COUNT}")
+    print("\n===========================================================================================")
+    print(f"  TOTAL: {IPV4_COUNT + IPV6_COUNT + ICMP_COUNT + TCP_COUNT + UDP_COUNT + HTTP_COUNT + DNS_COUNT + DHCP_COUNT + NTP_COUNT} pacotes capturados")
+    print("===========================================================================================")
+    
+    clean_terminal()
 
 # -- Funções de Desempacotamento --
 
@@ -459,12 +502,10 @@ def unpack_dhcp(packet, initial, name):
 # -- Funções de Escolhas
 
 def get_initial_info(packet):
-    if DEBUG:
-        print("\n--- Pacote Recebido ---\n")
-
-        print("Informações Gerais")
-        print(f" - Tamanho: {len(packet)} bytes")
-        print(f" - Dados Brutos (primeiros 60 bytes): {packet[:60]}")
+    print("\n--- Pacote Recebido ---\n")
+    print("Informações Gerais")
+    print(f" - Tamanho: {len(packet)} bytes")
+    print(f" - Dados Brutos (primeiros 60 bytes): {packet[:60]}")
 
 def get_ethernet_data(packet):
     return unpack_ethernet(packet)
@@ -472,14 +513,18 @@ def get_ethernet_data(packet):
 def get_ip_data(ether_data, packet):
     ip_data = None
     
+    global IPV4_COUNT, IPV6_COUNT
+    
     match ether_data["ether_type"]:
         case "0x0800":
             if DEBUG:
                 print("\nProtocolo IPv4")
+            IPV4_COUNT += 1
             ip_data = unpack_ipv4(packet)
         case "0x86dd":
             if DEBUG:
                 print("\nProtocolo IPv6")   
+            IPV6_COUNT += 1
             ip_data = unpack_ipv6(packet)
         case _:
             if DEBUG:
@@ -492,22 +537,28 @@ def get_transport_data(ip_data, packet):
     transport_data = None
     initial_position = 14 + ip_data["header_length"]
     
+    global ICMP_COUNT, TCP_COUNT, UDP_COUNT
+    
     match ip_data["protocol"]:
         case 1:
             if DEBUG:
                 print("\nProtocolo ICMP")
+            ICMP_COUNT += 1
             transport_data = unpack_icmp(packet, initial_position, "ICMP")
         case 6:
             if DEBUG:
                 print("\nProtocolo TCP")
+            TCP_COUNT += 1
             transport_data = unpack_tcp(packet, initial_position)
         case 17:
             if DEBUG:
                 print("\nProtocolo UDP")
+            UDP_COUNT += 1
             transport_data = unpack_udp(packet, initial_position)
         case 58:
             if DEBUG:
                 print("\nProtocolo ICMPv6")
+            ICMP_COUNT += 1
             transport_data = unpack_icmp(packet, initial_position, "ICMPv6")
         case _:
             if DEBUG:
@@ -526,29 +577,35 @@ def get_application_data(transport_data, packet, initial_position):
     else:
         return None
     
+    global HTTP_COUNT, DNS_COUNT, DHCP_COUNT, NTP_COUNT
+    
     ports = (transport_data.get("src_port"), transport_data.get("dest_port"))
             
     if 80 in ports:
         if DEBUG:
             print("\nProtocolo HTTP")
+        HTTP_COUNT += 1
         application_data = unpack_http(packet, initial_position, "HTTP")
     elif 53 in ports:
         if DEBUG:
             print("\nProtocolo DNS")
+        DNS_COUNT += 1
         application_data = unpack_dns(packet, initial_position, "DNS")
     elif (67 in ports) or (68 in ports):
         if DEBUG:
             print("\nProtocolo DHCP")
+        DHCP_COUNT += 1
         application_data = unpack_dhcp(packet, initial_position, "DHCP")
     elif 123 in ports:
         if DEBUG:
             print("\nProtocolo NTP")
+        NTP_COUNT += 1
         application_data = unpack_ntp(packet, initial_position, "NTP")
     else:
         if DEBUG:
             port_in_use = transport_data.get("dest_port") or transport_data.get("src_port")
             print(f"\nProtocolo na porta {port_in_use} não suportado.")
-            application_data = None # TODO: Criar um dicionario com informações basicas do outro protocolo para popular o LOG
+        application_data = None # TODO: Criar um dicionario com informações basicas do outro protocolo para popular o LOG
                 
     return application_data
 
@@ -572,7 +629,8 @@ def main():
         while True:
             raw_packet, _ = s.recvfrom(65535)
 
-            get_initial_info(raw_packet)
+            if DEBUG:
+                get_initial_info(raw_packet)
 
             ether_data = get_ethernet_data(raw_packet)
 
@@ -588,7 +646,8 @@ def main():
             
             save_logs(ether_data, ip_data, transport_data, application_data)
             
-            # TODO: Atualizar a interface 
+            if not DEBUG:
+                monitor_interface()
  
     except KeyboardInterrupt:
         print("\n[*] Monitoramento encerrado.")
