@@ -22,14 +22,17 @@ APP_HEADER = "Data/Hora,Protocolo,IP Origem,IP Destino,Tamanho\n"
 IPV4_COUNT = 0
 IPV6_COUNT = 0
 ICMP_COUNT = 0
+OTHER_IP_COUNT = 0
 
 TCP_COUNT = 0
 UDP_COUNT = 0
+OTHER_TRANSPORT_COUNT = 0
 
 HTTP_COUNT = 0
 DNS_COUNT = 0
 DHCP_COUNT = 0
 NTP_COUNT = 0
+OTHER_APP_COUNT = 0
 
 # -- Funções Auxiliares --
 
@@ -59,7 +62,7 @@ def create_transport_log(ip_data, transport_data):
     dt_string = ip_data['date'].strftime("%Y-%m-%d %H:%M:%S")
     protocolo = transport_data['name']
     
-    tamanho = ip_data['total_length'] - ip_data['header_length']
+    tamanho = ip_data['total_length']
     
     return f"{dt_string},{protocolo},{ip_data['src']},{transport_data['src_port']},{ip_data['dest']},{transport_data['dest_port']},{tamanho}\n"
 
@@ -67,7 +70,7 @@ def create_application_log(ip_data, application_data):
     dt_string = ip_data['date'].strftime("%Y-%m-%d %H:%M:%S")
     protocolo = application_data['name']
     
-    tamanho = ip_data['total_length'] - ip_data['header_length']
+    tamanho = ip_data['total_length']
     
     return f"{dt_string},{protocolo},{ip_data['src']},{ip_data['dest']},{tamanho}\n"
 
@@ -131,18 +134,21 @@ def monitor_interface():
     print(f"   IPv4: {IPV4_COUNT}")
     print(f"   IPv6: {IPV6_COUNT}")
     print(f"   ICMP: {ICMP_COUNT}")
+    print(f"   Outros: {OTHER_IP_COUNT}")
     print("\nCAMADA DE TRANSPORTE")
     print("-------------------------------------------------------------------------------------------")
     print(f"   TCP: {TCP_COUNT}")
     print(f"   UDP: {UDP_COUNT}")
+    print(f"   Outros: {OTHER_TRANSPORT_COUNT}")
     print("\nCAMADA DE APLICAÇÃO")
     print("-------------------------------------------------------------------------------------------")
     print(f"   HTTP: {HTTP_COUNT}")
     print(f"   DNS: {DNS_COUNT}")
     print(f"   DHCP: {DHCP_COUNT}")
     print(f"   NTP: {NTP_COUNT}")
+    print(f"   Outros: {OTHER_APP_COUNT}")
     print("\n===========================================================================================")
-    print(f"  TOTAL: {IPV4_COUNT + IPV6_COUNT + ICMP_COUNT + TCP_COUNT + UDP_COUNT + HTTP_COUNT + DNS_COUNT + DHCP_COUNT + NTP_COUNT} pacotes capturados")
+    print(f"  TOTAL: {IPV4_COUNT + IPV6_COUNT + ICMP_COUNT + TCP_COUNT + UDP_COUNT + HTTP_COUNT + DNS_COUNT + DHCP_COUNT + NTP_COUNT + OTHER_IP_COUNT + OTHER_TRANSPORT_COUNT + OTHER_APP_COUNT} pacotes capturados")
     print("===========================================================================================")
     
     clean_terminal()
@@ -420,7 +426,7 @@ def unpack_dns(packet, initial, name):
 
 def unpack_ntp(packet, initial, name):
     header_size = 48
-    unpack_format = '!BBbb I I 4s'
+    unpack_format = '!BBbbII4s'
     unpack_size = struct.calcsize(unpack_format)
     
     unpacked_data = struct.unpack(unpack_format, packet[initial:initial + unpack_size])
@@ -459,7 +465,7 @@ def unpack_ntp(packet, initial, name):
 def unpack_dhcp(packet, initial, name):
     header_size = 240
     
-    unpack_format = '!BBBB I HH 4s 4s 4s 4s'
+    unpack_format = '!BBBBIHH4s4s4s4s'
     unpack_size = struct.calcsize(unpack_format)
     
     unpacked_data = struct.unpack(unpack_format, packet[initial:initial + unpack_size])
@@ -513,7 +519,7 @@ def get_ethernet_data(packet):
 def get_ip_data(ether_data, packet):
     ip_data = None
     
-    global IPV4_COUNT, IPV6_COUNT
+    global IPV4_COUNT, IPV6_COUNT, OTHER_IP_COUNT
     
     match ether_data["ether_type"]:
         case "0x0800":
@@ -529,6 +535,7 @@ def get_ip_data(ether_data, packet):
         case _:
             if DEBUG:
                 print(f"\nProtocolo {ether_data['ether_type']} não suportado.")
+            OTHER_IP_COUNT += 1
             ip_data = None # TODO: Criar um dicionario com informações basicas do outro protocolo para popular o LOG
                 
     return ip_data
@@ -536,9 +543,9 @@ def get_ip_data(ether_data, packet):
 def get_transport_data(ip_data, packet):
     transport_data = None
     initial_position = 14 + ip_data["header_length"]
-    
-    global ICMP_COUNT, TCP_COUNT, UDP_COUNT
-    
+
+    global ICMP_COUNT, TCP_COUNT, UDP_COUNT, OTHER_TRANSPORT_COUNT
+
     match ip_data["protocol"]:
         case 1:
             if DEBUG:
@@ -563,6 +570,7 @@ def get_transport_data(ip_data, packet):
         case _:
             if DEBUG:
                 print(f"\nProtocolo {ip_data['protocol']} não suportado.")
+            OTHER_TRANSPORT_COUNT += 1
             transport_data = None # TODO: Criar um dicionario com informações basicas do outro protocolo para popular o LOG
 
     return transport_data
@@ -577,7 +585,7 @@ def get_application_data(transport_data, packet, initial_position):
     else:
         return None
     
-    global HTTP_COUNT, DNS_COUNT, DHCP_COUNT, NTP_COUNT
+    global HTTP_COUNT, DNS_COUNT, DHCP_COUNT, NTP_COUNT, OTHER_APP_COUNT
     
     ports = (transport_data.get("src_port"), transport_data.get("dest_port"))
             
@@ -605,6 +613,7 @@ def get_application_data(transport_data, packet, initial_position):
         if DEBUG:
             port_in_use = transport_data.get("dest_port") or transport_data.get("src_port")
             print(f"\nProtocolo na porta {port_in_use} não suportado.")
+        OTHER_APP_COUNT += 1
         application_data = None # TODO: Criar um dicionario com informações basicas do outro protocolo para popular o LOG
                 
     return application_data
