@@ -14,9 +14,9 @@ INTERNET_LOG_FILE = os.path.join(LOG_DIR, "camada_internet.csv")
 TRANSPORT_LOG_FILE = os.path.join(LOG_DIR, "camada_transporte.csv")
 APP_LOG_FILE = os.path.join(LOG_DIR, "camada_aplicacao.csv")
 
-INTERNET_HEADER = "Data/Hora,Protocolo,IP Origem,IP Destino,Protocolo Superior,Tamanho\n"
+INTERNET_HEADER = "Data/Hora,Protocolo,IP Origem,IP Destino,Protocolo ID,Outras Informações,Tamanho\n"
 TRANSPORT_HEADER = "Data/Hora,Protocolo,IP Origem,Porta Origem,IP Destino,Porta Destino,Tamanho\n"
-APP_HEADER = "Data/Hora,Protocolo,IP Origem,IP Destino,Tamanho\n"
+APP_HEADER = "Data/Hora,Protocolo,Informações\n"
 
 # -- Quantidades de Pacotes --
 IPV4_COUNT = 0
@@ -47,16 +47,18 @@ def format_mac(raw_mac):
 def create_network_log(ip_data, transport_data):
     dt_string = ip_data['date'].strftime("%Y-%m-%d %H:%M:%S")
     
+    outras_infos = "-"
+    protocolo_id = ip_data['protocol']
+    
     if transport_data and transport_data['name'] in ["ICMP", "ICMPv6"]:
-        protocolo = transport_data['name']
-        protocolo_superior = ""
+        protocolo_nome = transport_data['name']
+        outras_infos = transport_data.get("info_str", "-")
     else:
-        protocolo = ip_data['name']
-        protocolo_superior = ip_data['protocol']
+        protocolo_nome = ip_data['name']
 
     tamanho = ip_data['total_length']
     
-    return f"{dt_string},{protocolo},{ip_data['src']},{ip_data['dest']},{protocolo_superior},{tamanho}\n"
+    return f"{dt_string},{protocolo_nome},{ip_data['src']},{ip_data['dest']},{protocolo_id},{outras_infos},{tamanho}\n"
 
 def create_transport_log(ip_data, transport_data):
     dt_string = ip_data['date'].strftime("%Y-%m-%d %H:%M:%S")
@@ -70,11 +72,25 @@ def create_application_log(ip_data, application_data):
     dt_string = ip_data['date'].strftime("%Y-%m-%d %H:%M:%S")
     protocolo = application_data['name']
     
-    tamanho = ip_data['total_length']
+    info_str = ""
     
-    return f"{dt_string},{protocolo},{ip_data['src']},{ip_data['dest']},{tamanho}\n"
+    if protocolo == "HTTP":
+        info_str = application_data.get("request_line", "")
+    elif protocolo == "DNS":
+        info_str = f"ID: {application_data.get('transaction_id')} Qs: {application_data.get('questions')} Ans: {application_data.get('answers')}"
+    elif protocolo == "DHCP":
+        op = "Request" if application_data.get("opcode") == 1 else "Reply"
+        info_str = f"Op: {op} TransID: {application_data.get('transaction_id')}"
+    elif protocolo == "NTP":
+        info_str = f"Ver: {application_data.get('version')} Stratum: {application_data.get('stratum')}"
+    else:
+        info_str = "Dados não decodificados"
+        
+    info_str = info_str.replace("\r", "").replace("\n", " ")
+    
+    return f"{dt_string},{protocolo},{info_str}\n"
 
-def save_logs(ether_data, ip_data, transport_data, application_data):
+def save_logs(ip_data, transport_data, application_data):
     try:
         # Crie uma pasta chamadas Logs se não existir
         if not os.path.exists(LOG_DIR):
@@ -653,7 +669,7 @@ def main():
             if transport_data and transport_data["name"] not in ["ICMP", "ICMPv6"]:
                 application_data = get_application_data(transport_data, raw_packet, 14 + ip_data["header_length"])
             
-            save_logs(ether_data, ip_data, transport_data, application_data)
+            save_logs(ip_data, transport_data, application_data)
             
             if not DEBUG:
                 monitor_interface()
