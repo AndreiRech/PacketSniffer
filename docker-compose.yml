@@ -1,0 +1,28 @@
+services:
+  sniffer:
+    build: .
+    container_name: sniffer
+    cap_add:
+      - NET_ADMIN
+    command: python3 monitor.py eth0 off
+    volumes:
+      - ./Logs:/app/Logs
+    networks:
+      redelab:
+        ipv6_address: 2001:db8:1::100 
+
+  client:
+    image: alpine:latest
+    container_name: client
+    command: tail -f /dev/null
+    networks:
+      - redelab
+
+networks:
+  redelab:
+    driver: bridge
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16      
+        - subnet: 2001:db8:1::/64   
